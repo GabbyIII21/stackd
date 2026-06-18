@@ -5,6 +5,8 @@ import { FlameIcon } from "@/components/Logo";
 import { getAllProfiles, type Log } from "@/lib/storage";
 import { useMounted } from "@/hooks/use-mounted";
 import { relativeTime, shortAddress } from "@/lib/format";
+import { CategoryChip } from "@/components/CategoryUI";
+import { LogImage } from "@/components/LogImage";
 
 export const Route = createFileRoute("/explore")({
   head: () => ({ meta: [{ title: "Explore — StackD" }] }),
@@ -20,7 +22,7 @@ function Explore() {
   useEffect(() => {
     if (!mounted) return;
     const all = getAllProfiles().flatMap((p) =>
-      p.logs.map((l) => ({ ...l, address: p.address })),
+      p.logs.filter((l) => !l.isFreeze).map((l) => ({ ...l, address: p.address })),
     );
     all.sort((a, b) => b.createdAt - a.createdAt);
     setItems(all);
@@ -55,9 +57,15 @@ function Explore() {
                   >
                     {shortAddress(l.address)}
                   </Link>
-                  <span className="text-xs text-muted-foreground">{relativeTime(l.createdAt)}</span>
+                  <div className="flex items-center gap-2">
+                    <CategoryChip category={l.category} />
+                    <span className="text-xs text-muted-foreground">
+                      {relativeTime(l.createdAt)}
+                    </span>
+                  </div>
                 </div>
                 <p className="mt-2 text-sm text-foreground whitespace-pre-wrap">{l.content}</p>
+                {l.imageHash && <LogImage hash={l.imageHash} />}
                 <div className="mt-3">
                   <span className="inline-flex items-center gap-1 text-xs text-[#22c55e] border border-[#22c55e]/30 rounded-full px-2 py-0.5">
                     <FlameIcon />
