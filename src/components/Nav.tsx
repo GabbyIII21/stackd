@@ -2,9 +2,12 @@ import { Link } from "@tanstack/react-router";
 import { useAccount } from "wagmi";
 import { Logo } from "./Logo";
 import { ConnectButton } from "./ConnectButton";
+import { StreakFlame } from "./StreakFlame";
+import { useLiveProfile } from "@/hooks/use-live-profile";
 
 export function Nav() {
   const { isConnected } = useAccount();
+  const { profile } = useLiveProfile();
   return (
     <header className="border-b border-border">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
@@ -26,6 +29,16 @@ export function Nav() {
           >
             Leaderboard
           </Link>
+          {isConnected && (
+            <Link
+              to="/achievements"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              activeProps={{ className: "text-foreground" }}
+            >
+              Achievements
+            </Link>
+          )}
+          {isConnected && <StreakFlame streak={profile?.currentStreak ?? 0} />}
           <ConnectButton variant={isConnected ? "secondary" : "primary"} />
         </nav>
       </div>
