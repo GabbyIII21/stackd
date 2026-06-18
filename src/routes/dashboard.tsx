@@ -14,7 +14,7 @@ import {
   type Profile,
 } from "@/lib/storage";
 import { formatDate } from "@/lib/format";
-import { CATEGORIES, type Category, IPFS_GATEWAY } from "@/lib/categories";
+import { type Category } from "@/lib/categories";
 import { CategoryChip, CategoryPills } from "@/components/CategoryUI";
 import { LogImage } from "@/components/LogImage";
 import { WeeklyDigest } from "@/components/WeeklyDigest";
@@ -331,6 +331,3 @@ function StatCard({
   );
 }
 
-// Keep IPFS_GATEWAY/CATEGORIES referenced to avoid tree-shaking surprises in some setups
-void IPFS_GATEWAY;
-void CATEGORIES;
