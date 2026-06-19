@@ -78,6 +78,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "base:app_id", content: "6a339a35ce4d82b1606a794e" },
       { title: "StackD — Build Something. Every Day." },
       {
         name: "description",
