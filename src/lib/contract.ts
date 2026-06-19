@@ -1,11 +1,12 @@
-import { baseSepolia } from "wagmi/chains";
+import { base } from "wagmi/chains";
 
-// StackdRegistry on Base Sepolia. Override with VITE_STACKD_REGISTRY_ADDRESS.
+// StackdRegistry on Base Mainnet. Override with VITE_STACKD_REGISTRY_ADDRESS.
+// (Same address on Base Sepolia — deployed from the same deployer at nonce 0.)
 export const REGISTRY_ADDRESS = (import.meta.env.VITE_STACKD_REGISTRY_ADDRESS ??
   "0x27A114c7C0e0d0ef97538407C447D7601c940d4D") as `0x${string}`;
 
 // The chain StackdRegistry is deployed on.
-export const REGISTRY_CHAIN = baseSepolia;
+export const REGISTRY_CHAIN = base;
 
 export const STACKD_REGISTRY_ABI = [
   {

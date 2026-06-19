@@ -3,7 +3,7 @@ import { base, baseSepolia } from "wagmi/chains";
 import { coinbaseWallet, injected, walletConnect } from "wagmi/connectors";
 
 export const wagmiConfig = createConfig({
-  chains: [baseSepolia, base],
+  chains: [base, baseSepolia],
   connectors: [
     coinbaseWallet({ appName: "StackD", preference: "all" }),
     injected({ shimDisconnect: true }),
