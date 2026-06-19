@@ -7,6 +7,11 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // Outside a Lovable sandbox (e.g. building on Vercel) the deploy adapter is
+  // skipped unless `nitro` is set explicitly. Pin the Vercel preset so the build
+  // emits Vercel Build Output (.vercel/output) instead of an unservable
+  // Vite-only build — without this, Vercel 404s on every route.
+  nitro: { preset: "vercel" },
   tanstackStart: {
     // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
     // nitro/vite builds from this
