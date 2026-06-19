@@ -4,22 +4,26 @@ import { useAccount } from "wagmi";
 import { Paperclip, X, Snowflake } from "lucide-react";
 import { Nav, Footer } from "@/components/Nav";
 import { useMounted } from "@/hooks/use-mounted";
-import {
-  addLog,
-  activateFreeze,
-  canActivateFreeze,
-  daysUntilNextFreeze,
-  getLiveProfile,
-  hasLoggedToday,
-  type Profile,
-} from "@/lib/storage";
+import { canActivateFreeze, daysUntilNextFreeze, hasLoggedToday } from "@/lib/storage";
+import { useProfile } from "@/hooks/use-registry";
+import { submitActivateFreeze, submitLogBuild } from "@/lib/registry-actions";
 import { formatDate } from "@/lib/format";
 import { type Category } from "@/lib/categories";
 import { CategoryChip, CategoryPills } from "@/components/CategoryUI";
 import { LogImage } from "@/components/LogImage";
 import { WeeklyDigest } from "@/components/WeeklyDigest";
 import { useServerFn } from "@tanstack/react-start";
-import { uploadToPinata } from "@/lib/pinata.functions";
+import { pinJsonToPinata, uploadToPinata } from "@/lib/pinata.functions";
+
+function friendlyError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (/User rejected|denied|rejected the request/i.test(msg)) return "Transaction rejected.";
+  if (/AlreadyLoggedToday/i.test(msg)) return "You've already logged today.";
+  if (/NoFreezeAvailable/i.test(msg)) return "No freeze available.";
+  if (/FreezeNotApplicable/i.test(msg)) return "A freeze can't be used right now.";
+  if (/insufficient funds/i.test(msg)) return "Insufficient funds for gas on Base Sepolia.";
+  return msg.length > 160 ? msg.slice(0, 160) + "…" : msg;
+}
 
 export const Route = createFileRoute("/dashboard")({
   head: () => ({ meta: [{ title: "Dashboard — StackD" }] }),
@@ -33,23 +37,23 @@ function Dashboard() {
   const mounted = useMounted();
   const { address, isConnected } = useAccount();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { profile, refetch } = useProfile(mounted && isConnected ? address : undefined);
   const [text, setText] = useState("");
   const [category, setCategory] = useState<Category>("Other");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [freezing, setFreezing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const upload = useServerFn(uploadToPinata);
+  const uploadImage = useServerFn(uploadToPinata);
+  const pinJson = useServerFn(pinJsonToPinata);
 
   useEffect(() => {
     if (!mounted) return;
     if (!isConnected || !address) {
       navigate({ to: "/" });
-      return;
     }
-    setProfile(getLiveProfile(address));
   }, [mounted, isConnected, address, navigate]);
 
   useEffect(() => {
@@ -74,7 +78,7 @@ function Dashboard() {
 
   const todayLog = hasLoggedToday(profile);
   const overLimit = text.length > 280;
-  const disabled = text.trim().length === 0 || overLimit || uploading;
+  const disabled = text.trim().length === 0 || overLimit || submitting;
 
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
@@ -97,35 +101,43 @@ function Dashboard() {
   };
 
   const onSubmit = async () => {
-    if (disabled) return;
+    if (disabled || !address) return;
     setError(null);
-    let imageHash: string | undefined;
+    setSubmitting(true);
     try {
+      let imageHash: string | undefined;
       if (file) {
-        setUploading(true);
         const fd = new FormData();
         fd.append("file", file);
-        const res = await upload({ data: fd });
+        const res = await uploadImage({ data: fd });
         imageHash = res.hash;
       }
+      const pin = await pinJson({ data: { content: text.trim(), imageHash, category } });
+      await submitLogBuild(pin.hash, category);
+      await refetch();
+      setText("");
+      setCategory("Other");
+      setFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (e) {
-      setUploading(false);
-      setError(e instanceof Error ? e.message : "Image upload failed.");
-      return;
+      setError(friendlyError(e));
+    } finally {
+      setSubmitting(false);
     }
-    setUploading(false);
-    const updated = addLog(address, text, { imageHash, category });
-    setProfile(getLiveProfile(updated.address));
-    setText("");
-    setCategory("Other");
-    setFile(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const onActivateFreeze = () => {
-    if (!canActivateFreeze(profile)) return;
-    const updated = activateFreeze(address);
-    setProfile(getLiveProfile(updated.address));
+  const onActivateFreeze = async () => {
+    if (!canActivateFreeze(profile) || freezing) return;
+    setError(null);
+    setFreezing(true);
+    try {
+      await submitActivateFreeze();
+      await refetch();
+    } catch (e) {
+      setError(friendlyError(e));
+    } finally {
+      setFreezing(false);
+    }
   };
 
   const logs = [...profile.logs].sort((a, b) => b.createdAt - a.createdAt);
@@ -170,11 +182,11 @@ function Dashboard() {
           </div>
           <button
             onClick={onActivateFreeze}
-            disabled={!freezeReady}
+            disabled={!freezeReady || freezing}
             className="text-sm px-3 py-1.5 rounded-md font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: "#0052FF", color: "white" }}
           >
-            Activate Freeze
+            {freezing ? "Freezing…" : "Activate Freeze"}
           </button>
         </div>
 
@@ -253,7 +265,7 @@ function Dashboard() {
                     disabled={disabled}
                     className="px-4 py-2 rounded-md bg-[#0052FF] text-white text-sm font-medium hover:bg-[#0047d9] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    {uploading ? "Uploading…" : "Log Today"}
+                    {submitting ? "Logging…" : "Log Today"}
                   </button>
                 </div>
                 <span
@@ -330,4 +342,3 @@ function StatCard({
     </div>
   );
 }
-

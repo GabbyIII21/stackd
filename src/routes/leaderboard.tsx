@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { Nav, Footer } from "@/components/Nav";
-import { getAllProfiles, getLiveProfile, type Profile } from "@/lib/storage";
 import { useMounted } from "@/hooks/use-mounted";
+import { useLeaderboard } from "@/hooks/use-registry";
 import { shortAddress } from "@/lib/format";
 
 export const Route = createFileRoute("/leaderboard")({
@@ -14,14 +13,7 @@ export const Route = createFileRoute("/leaderboard")({
 function Leaderboard() {
   const mounted = useMounted();
   const { address } = useAccount();
-  const [rows, setRows] = useState<Profile[]>([]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const all = getAllProfiles().map((p) => getLiveProfile(p.address));
-    all.sort((a, b) => b.builderScore - a.builderScore);
-    setRows(all);
-  }, [mounted]);
+  const { rows, isLoading } = useLeaderboard();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -30,7 +22,7 @@ function Leaderboard() {
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">
           Builder Leaderboard
         </h2>
-        {mounted && rows.length === 0 ? (
+        {mounted && !isLoading && rows.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground text-sm">
             No builders on the board yet.
           </div>
@@ -67,7 +59,7 @@ function Leaderboard() {
                   </Link>
                   <div className="text-right text-foreground font-medium">{p.builderScore}</div>
                   <div className="text-right text-[#22c55e]">{p.currentStreak}</div>
-                  <div className="text-right text-muted-foreground">{p.logs.length}</div>
+                  <div className="text-right text-muted-foreground">{p.totalLogs}</div>
                 </div>
               );
             })}

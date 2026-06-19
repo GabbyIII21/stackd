@@ -49,7 +49,7 @@ export function Nav() {
 export function Footer() {
   return (
     <footer className="mt-16 py-8 text-center text-xs text-muted-foreground">
-      StackD · Logs are stored locally on this device.
+      StackD · Logs are stored onchain on Base.
     </footer>
   );
 }

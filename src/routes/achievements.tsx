@@ -1,10 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useAccount } from "wagmi";
 import { Nav, Footer } from "@/components/Nav";
 import { useMounted } from "@/hooks/use-mounted";
-import { getLiveProfile, type Profile } from "@/lib/storage";
-import { computeAchievements, type Achievement, type AchievementCategory } from "@/lib/achievements";
+import { useProfile } from "@/hooks/use-registry";
+import {
+  computeAchievements,
+  type Achievement,
+  type AchievementCategory,
+} from "@/lib/achievements";
 import { formatDate } from "@/lib/format";
 
 export const Route = createFileRoute("/achievements")({
@@ -18,15 +22,13 @@ function AchievementsPage() {
   const mounted = useMounted();
   const { address, isConnected } = useAccount();
   const navigate = useNavigate();
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { profile } = useProfile(mounted && isConnected ? address : undefined);
 
   useEffect(() => {
     if (!mounted) return;
     if (!isConnected || !address) {
       navigate({ to: "/" });
-      return;
     }
-    setProfile(getLiveProfile(address));
   }, [mounted, isConnected, address, navigate]);
 
   if (!mounted || !profile) {
