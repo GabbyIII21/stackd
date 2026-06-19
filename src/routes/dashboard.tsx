@@ -21,7 +21,7 @@ function friendlyError(e: unknown): string {
   if (/AlreadyLoggedToday/i.test(msg)) return "You've already logged today.";
   if (/NoFreezeAvailable/i.test(msg)) return "No freeze available.";
   if (/FreezeNotApplicable/i.test(msg)) return "A freeze can't be used right now.";
-  if (/insufficient funds/i.test(msg)) return "Insufficient funds for gas on Base Sepolia.";
+  if (/insufficient funds/i.test(msg)) return "Insufficient funds for gas on Base.";
   return msg.length > 160 ? msg.slice(0, 160) + "…" : msg;
 }
 

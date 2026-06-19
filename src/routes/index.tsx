@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAccount } from "wagmi";
 import {
   Flame,
@@ -31,20 +31,21 @@ export const Route = createFileRoute("/")({
   component: Landing,
 });
 
-// Session-scoped: auto-advance to the dashboard once when a wallet first connects,
-// but let users navigate back to this landing (e.g. via the logo) without bouncing.
-let hasAutoAdvanced = false;
-
 function Landing() {
   const mounted = useMounted();
   const { isConnected } = useAccount();
   const navigate = useNavigate();
+  // Only auto-advance on the rising edge of connection — i.e. the user actually
+  // connects *while on* the landing. A user who is already connected and clicks
+  // the logo to come back here stays put (no bounce to the dashboard).
+  const wasConnected = useRef(isConnected);
 
   useEffect(() => {
-    if (mounted && isConnected && !hasAutoAdvanced) {
-      hasAutoAdvanced = true;
+    if (!mounted) return;
+    if (isConnected && !wasConnected.current) {
       navigate({ to: "/dashboard" });
     }
+    wasConnected.current = isConnected;
   }, [mounted, isConnected, navigate]);
 
   return (
