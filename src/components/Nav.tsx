@@ -11,7 +11,7 @@ export function Nav() {
   return (
     <header className="border-b border-border">
       <div className="max-w-[1100px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
-        <Link to={isConnected ? "/dashboard" : "/"}>
+        <Link to="/" aria-label="StackD home">
           <Logo />
         </Link>
         <nav className="flex items-center gap-5 text-sm">
