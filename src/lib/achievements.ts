@@ -1,4 +1,4 @@
-import { type Profile, type Log, getRegistrationIndex, logsThisYear } from "./storage";
+import { type Profile, type Log, logsThisYear } from "./storage";
 
 export type AchievementCategory = "Consistency" | "Volume" | "Milestones";
 
@@ -92,7 +92,7 @@ export function computeAchievements(profile: Profile): Achievement[] {
   });
 
   // ── Milestones ─────────────────────────────────────────────────────────
-  const regIndex = getRegistrationIndex(profile.address);
+  const regIndex = profile.registrationIndex ?? -1;
   const earlyEarned = regIndex >= 0 && regIndex < 100 && totalLogs >= 1;
   const earlyAt = earlyEarned ? profile.firstLogAt : undefined;
 

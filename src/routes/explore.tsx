@@ -1,9 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import { Nav, Footer } from "@/components/Nav";
 import { FlameIcon } from "@/components/Logo";
-import { getAllProfiles, type Log } from "@/lib/storage";
 import { useMounted } from "@/hooks/use-mounted";
+import { useExploreFeed } from "@/hooks/use-registry";
 import { relativeTime, shortAddress } from "@/lib/format";
 import { CategoryChip } from "@/components/CategoryUI";
 import { LogImage } from "@/components/LogImage";
@@ -13,20 +12,9 @@ export const Route = createFileRoute("/explore")({
   component: Explore,
 });
 
-type FeedItem = Log & { address: string };
-
 function Explore() {
   const mounted = useMounted();
-  const [items, setItems] = useState<FeedItem[]>([]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const all = getAllProfiles().flatMap((p) =>
-      p.logs.filter((l) => !l.isFreeze).map((l) => ({ ...l, address: p.address })),
-    );
-    all.sort((a, b) => b.createdAt - a.createdAt);
-    setItems(all);
-  }, [mounted]);
+  const { items, isLoading } = useExploreFeed();
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -35,7 +23,7 @@ function Explore() {
         <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4">
           Builder Feed
         </h2>
-        {mounted && items.length === 0 ? (
+        {mounted && !isLoading && items.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-muted-foreground text-sm">No builders yet. Be the first.</p>
             <Link

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { type Profile, logsThisWeek, getAllProfiles, getLiveProfile } from "@/lib/storage";
+import { type Profile, logsThisWeek } from "@/lib/storage";
+import { useLeaderboard } from "@/hooks/use-registry";
 
 function thisSundayKey(): string | null {
   const now = new Date();
@@ -12,12 +13,13 @@ const DISMISS_PREFIX = "stackd:digest-dismissed:";
 
 export function WeeklyDigest({ profile }: { profile: Profile }) {
   const sundayKey = thisSundayKey();
+  const { rows } = useLeaderboard();
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
-    if (!sundayKey) return;
+    if (!sundayKey || typeof window === "undefined") return;
     const k = `${DISMISS_PREFIX}${profile.address}:${sundayKey}`;
-    setDismissed(localStorage.getItem(k) === "1");
+    setDismissed(sessionStorage.getItem(k) === "1");
   }, [sundayKey, profile.address]);
 
   if (!sundayKey) return null;
@@ -30,13 +32,11 @@ export function WeeklyDigest({ profile }: { profile: Profile }) {
   const streakStart = Math.max(0, streakNow - week.length);
   const scoreChange = week.length * 1 + (streakNow - streakStart) * 3;
 
-  // leaderboard rank
-  const all = getAllProfiles().map((p) => getLiveProfile(p.address));
-  all.sort((a, b) => b.builderScore - a.builderScore);
-  const rank = all.findIndex((p) => p.address === profile.address) + 1;
+  // leaderboard rank (from on-chain scores)
+  const rank = rows.findIndex((r) => r.address === profile.address) + 1;
 
   const onDismiss = () => {
-    localStorage.setItem(`${DISMISS_PREFIX}${profile.address}:${sundayKey}`, "1");
+    sessionStorage.setItem(`${DISMISS_PREFIX}${profile.address}:${sundayKey}`, "1");
     setDismissed(true);
   };
 
@@ -67,7 +67,15 @@ export function WeeklyDigest({ profile }: { profile: Profile }) {
   );
 }
 
-function DigestStat({ label, value, color = "text-foreground" }: { label: string; value: string; color?: string }) {
+function DigestStat({
+  label,
+  value,
+  color = "text-foreground",
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) {
   return (
     <div>
       <div className={`font-semibold ${color}`}>{value}</div>

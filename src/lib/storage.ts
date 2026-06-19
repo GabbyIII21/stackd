@@ -1,6 +1,10 @@
-// localStorage-backed profile + log + streak logic
+// Profile + log model. Data is sourced from the StackdRegistry contract
+// (on-chain streak/score state) plus IPFS log payloads (content/image).
+// This module holds the shared types, pure helpers, and the chain → Profile
+// mappers. No browser storage is used.
 
-import { type Category, isCategory } from "./categories";
+import { CATEGORIES, type Category } from "./categories";
+import type { LogPayload } from "./ipfs";
 
 export type Log = {
   id: string;
@@ -11,6 +15,7 @@ export type Log = {
   imageHash?: string;
   category?: Category;
   isFreeze?: boolean;
+  cid?: string; // IPFS CID of the payload ("" for freeze entries)
 };
 
 export type Profile = {
@@ -21,15 +26,14 @@ export type Profile = {
   builderScore: number;
   // Freeze
   freezeAvailable?: boolean;
-  freezeEarnedAtStreak?: number; // most recent streak milestone we minted a token at
+  freezeEarnedAtStreak?: number; // most recent streak milestone that minted a token
   // Achievements
   hadComeback?: boolean;
-  firstLogAt?: number;
+  firstLogAt?: number; // ms epoch
+  registrationIndex?: number; // 0-based order this wallet first logged; -1 if none
 };
 
-const KEY_PREFIX = "stackd:profile:";
-const INDEX_KEY = "stackd:addresses";
-const REGISTRATION_INDEX_KEY = "stackd:registrations"; // ordered first-100 wallets
+// ─── Date helpers ───────────────────────────────────────────────────────────
 
 export function todayUTC(): string {
   const d = new Date();
@@ -39,6 +43,11 @@ export function todayUTC(): string {
 export function dateToUTC(ms: number): string {
   const d = new Date(ms);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+// UTC day number (timestamp / 1 day) → YYYY-MM-DD, matching the contract's _today().
+export function dayNumberToUTC(day: number): string {
+  return dateToUTC(day * 86400000);
 }
 
 function daysBetweenUTC(a: string, b: string): number {
@@ -53,20 +62,7 @@ function normAddr(addr: string): string {
   return addr.toLowerCase();
 }
 
-export function getProfile(address: string): Profile {
-  if (typeof window === "undefined") return emptyProfile(address);
-  const key = KEY_PREFIX + normAddr(address);
-  const raw = localStorage.getItem(key);
-  if (!raw) return emptyProfile(address);
-  try {
-    const p = JSON.parse(raw) as Profile;
-    return { ...emptyProfile(address), ...p, address: normAddr(address) };
-  } catch {
-    return emptyProfile(address);
-  }
-}
-
-function emptyProfile(address: string): Profile {
+export function emptyProfile(address: string): Profile {
   return {
     address: normAddr(address),
     logs: [],
@@ -76,135 +72,100 @@ function emptyProfile(address: string): Profile {
     freezeAvailable: false,
     freezeEarnedAtStreak: 0,
     hadComeback: false,
+    registrationIndex: -1,
   };
 }
 
-function saveProfile(profile: Profile) {
-  localStorage.setItem(KEY_PREFIX + profile.address, JSON.stringify(profile));
-  const idxRaw = localStorage.getItem(INDEX_KEY);
-  const idx: string[] = idxRaw ? JSON.parse(idxRaw) : [];
-  if (!idx.includes(profile.address)) {
-    idx.push(profile.address);
-    localStorage.setItem(INDEX_KEY, JSON.stringify(idx));
+// ─── Chain → model mappers ───────────────────────────────────────────────────
+
+// The raw Log struct as returned by getLogs / getLogsPaged.
+export type ChainLog = {
+  day: number;
+  category: number;
+  isFreeze: boolean;
+  timestamp: bigint;
+  streak: number;
+  cid: string;
+};
+
+// The tuple returned by getBuilder(address).
+export type ChainBuilder = {
+  currentStreak: number; // live streak (decay already applied on-chain)
+  longestStreak: number;
+  totalLogs: number;
+  lastDay: number;
+  freezeAvailable: boolean;
+  exists: boolean;
+  firstLogAt: bigint;
+  registrationIndex: number;
+  score: bigint;
+};
+
+function categoryFromIndex(i: number): Category {
+  return CATEGORIES[i] ?? "Other";
+}
+
+export function mapChainLog(l: ChainLog, payload?: LogPayload): Log {
+  const createdAt = Number(l.timestamp) * 1000;
+  return {
+    id: l.cid || `${l.day}-${l.isFreeze ? "f" : "b"}-${l.timestamp}`,
+    date: dayNumberToUTC(l.day),
+    content: l.isFreeze ? "Streak Freeze activated" : (payload?.content ?? ""),
+    streak: l.streak,
+    createdAt,
+    imageHash: payload?.imageHash,
+    category: categoryFromIndex(l.category),
+    isFreeze: l.isFreeze,
+    cid: l.cid,
+  };
+}
+
+// Detect the "Comeback Kid" condition from the on-chain log sequence:
+// a streak that reached 7+, broke (reset to 1), then was rebuilt to 7+.
+export function computeHadComeback(logs: Log[]): boolean {
+  const sorted = [...logs].filter((l) => !l.isFreeze).sort((a, b) => a.createdAt - b.createdAt);
+  let peak = 0;
+  let brokeAfter7 = false;
+  for (const l of sorted) {
+    if (l.streak === 1 && peak >= 7) brokeAfter7 = true;
+    if (brokeAfter7 && l.streak >= 7) return true;
+    peak = Math.max(peak, l.streak);
   }
+  return false;
 }
 
-function registerAddress(address: string) {
-  const raw = localStorage.getItem(REGISTRATION_INDEX_KEY);
-  const arr: string[] = raw ? JSON.parse(raw) : [];
-  if (!arr.includes(address)) {
-    arr.push(address);
-    localStorage.setItem(REGISTRATION_INDEX_KEY, JSON.stringify(arr));
+// Assemble a Profile from chain reads + hydrated IPFS payloads.
+export function buildProfile(
+  address: string,
+  builder: ChainBuilder | null,
+  chainLogs: ChainLog[],
+  payloadByCid: Record<string, LogPayload> = {},
+): Profile {
+  const base = emptyProfile(address);
+  const logs = chainLogs.map((l) => mapChainLog(l, l.cid ? payloadByCid[l.cid] : undefined));
+  if (!builder || !builder.exists) {
+    return { ...base, logs, hadComeback: computeHadComeback(logs) };
   }
+  const currentStreak = builder.currentStreak;
+  return {
+    ...base,
+    logs,
+    currentStreak,
+    longestStreak: builder.longestStreak,
+    builderScore: Number(builder.score),
+    freezeAvailable: builder.freezeAvailable,
+    freezeEarnedAtStreak: Math.floor(currentStreak / 10) * 10,
+    firstLogAt: builder.firstLogAt ? Number(builder.firstLogAt) * 1000 : undefined,
+    registrationIndex: builder.registrationIndex,
+    hadComeback: computeHadComeback(logs),
+  };
 }
 
-export function getRegistrationIndex(address: string): number {
-  if (typeof window === "undefined") return -1;
-  const raw = localStorage.getItem(REGISTRATION_INDEX_KEY);
-  const arr: string[] = raw ? JSON.parse(raw) : [];
-  return arr.indexOf(normAddr(address));
-}
-
-export function getAllProfiles(): Profile[] {
-  if (typeof window === "undefined") return [];
-  const idxRaw = localStorage.getItem(INDEX_KEY);
-  if (!idxRaw) return [];
-  const idx: string[] = JSON.parse(idxRaw);
-  return idx.map((a) => getProfile(a)).filter((p) => p.logs.length > 0);
-}
+// ─── Pure profile helpers (used across routes/components) ─────────────────────
 
 export function hasLoggedToday(profile: Profile): Log | null {
   const today = todayUTC();
   return profile.logs.find((l) => l.date === today) ?? null;
-}
-
-function computeScore(p: { logs: Log[]; currentStreak: number; longestStreak: number }) {
-  return p.logs.length + p.currentStreak * 3 + p.longestStreak * 2;
-}
-
-function maybeMintFreeze(p: Profile): Profile {
-  // mint one freeze token (max 1) every time streak crosses a new multiple of 10
-  const earnedAt = p.freezeEarnedAtStreak ?? 0;
-  const milestonesPassed = Math.floor(p.currentStreak / 10);
-  if (milestonesPassed * 10 > earnedAt) {
-    return { ...p, freezeAvailable: true, freezeEarnedAtStreak: milestonesPassed * 10 };
-  }
-  return p;
-}
-
-export function addLog(
-  address: string,
-  content: string,
-  opts: { imageHash?: string; category?: Category } = {},
-): Profile {
-  const profile = getProfile(address);
-  const today = todayUTC();
-  if (profile.logs.some((l) => l.date === today)) return profile;
-  registerAddress(profile.address);
-
-  const sorted = [...profile.logs].filter((l) => !l.isFreeze).sort((a, b) => (a.date < b.date ? 1 : -1));
-  const last = sorted[0];
-  const prevStreak = profile.currentStreak;
-  let nextStreak = 1;
-  if (last) {
-    const gap = daysBetweenUTC(last.date, today);
-    nextStreak = gap === 1 ? profile.currentStreak + 1 : 1;
-  }
-
-  const log: Log = {
-    id: `${today}-${Math.random().toString(36).slice(2, 10)}`,
-    date: today,
-    content: content.trim(),
-    streak: nextStreak,
-    createdAt: Date.now(),
-    imageHash: opts.imageHash || undefined,
-    category: opts.category && isCategory(opts.category) ? opts.category : "Other",
-  };
-
-  let updated: Profile = {
-    ...profile,
-    logs: [...profile.logs, log],
-    currentStreak: nextStreak,
-    longestStreak: Math.max(profile.longestStreak, nextStreak),
-    builderScore: 0,
-    firstLogAt: profile.firstLogAt ?? Date.now(),
-    hadComeback:
-      profile.hadComeback || (prevStreak === 0 && profile.longestStreak >= 1 && nextStreak >= 7)
-        ? true
-        : profile.hadComeback,
-  };
-  // Comeback Kid: detected later via longestStreak / break history. Simpler heuristic:
-  // if the user previously had a streak that broke (longest>=7 already), and now reaches 7, mark it.
-  if (!updated.hadComeback && profile.longestStreak >= 7 && prevStreak === 0 && nextStreak >= 7) {
-    updated.hadComeback = true;
-  }
-  updated.builderScore = computeScore(updated);
-  updated = maybeMintFreeze(updated);
-  saveProfile(updated);
-  return updated;
-}
-
-export function activateFreeze(address: string): Profile {
-  const p = getProfile(address);
-  if (!canActivateFreeze(p)) return p;
-  const today = todayUTC();
-  const log: Log = {
-    id: `${today}-freeze-${Math.random().toString(36).slice(2, 8)}`,
-    date: today,
-    content: "Streak Freeze activated",
-    streak: p.currentStreak,
-    createdAt: Date.now(),
-    isFreeze: true,
-    category: "Other",
-  };
-  const updated: Profile = {
-    ...p,
-    logs: [...p.logs, log],
-    freezeAvailable: false,
-  };
-  updated.builderScore = computeScore(updated);
-  saveProfile(updated);
-  return updated;
 }
 
 export function canActivateFreeze(p: Profile): boolean {
@@ -217,20 +178,6 @@ export function canActivateFreeze(p: Profile): boolean {
   return daysBetweenUTC(last.date, today) === 1;
 }
 
-// Recompute current streak on read (decay if missed days)
-export function getLiveProfile(address: string): Profile {
-  const p = getProfile(address);
-  if (p.logs.length === 0) return p;
-  const sorted = [...p.logs].sort((a, b) => (a.date < b.date ? 1 : -1));
-  const last = sorted[0];
-  const gap = daysBetweenUTC(last.date, todayUTC());
-  const liveCurrent = gap <= 1 ? p.currentStreak : 0;
-  const liveScore = p.logs.length + liveCurrent * 3 + p.longestStreak * 2;
-  return { ...p, currentStreak: liveCurrent, builderScore: liveScore };
-}
-
-// ─── Helpers for new features ──────────────────────────────────────────────
-
 export function logDateSet(p: Profile): Set<string> {
   return new Set(p.logs.map((l) => l.date));
 }
@@ -240,7 +187,9 @@ export function logsThisWeek(p: Profile): Log[] {
   const now = new Date();
   const day = now.getUTCDay(); // 0=Sun
   const diffToMon = (day + 6) % 7;
-  const monday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diffToMon));
+  const monday = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - diffToMon),
+  );
   const mondayStr = dateToUTC(monday.getTime());
   return p.logs.filter((l) => l.date >= mondayStr);
 }
@@ -250,7 +199,9 @@ export function logsThisYear(p: Profile): Log[] {
   return p.logs.filter((l) => l.date.startsWith(String(year)));
 }
 
-export function categoryBreakdown(p: Profile): { category: Category; count: number; pct: number }[] {
+export function categoryBreakdown(
+  p: Profile,
+): { category: Category; count: number; pct: number }[] {
   const filtered = p.logs.filter((l) => !l.isFreeze);
   const total = filtered.length || 1;
   const counts = new Map<Category, number>();
@@ -265,6 +216,6 @@ export function categoryBreakdown(p: Profile): { category: Category; count: numb
 
 export function daysUntilNextFreeze(p: Profile): number {
   if (p.freezeAvailable) return 0;
-  const nextMilestone = ((p.freezeEarnedAtStreak ?? 0) + 10);
+  const nextMilestone = (p.freezeEarnedAtStreak ?? 0) + 10;
   return Math.max(0, nextMilestone - p.currentStreak);
 }

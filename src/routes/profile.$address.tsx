@@ -1,13 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import { Nav, Footer } from "@/components/Nav";
-import {
-  categoryBreakdown,
-  getLiveProfile,
-  logDateSet,
-  type Profile,
-} from "@/lib/storage";
+import { categoryBreakdown, logDateSet } from "@/lib/storage";
+import { useProfile } from "@/hooks/use-registry";
 import { useMounted } from "@/hooks/use-mounted";
 import { formatDate, shortAddress } from "@/lib/format";
 import { Heatmap } from "@/components/Heatmap";
@@ -32,17 +27,10 @@ const BADGES = [
 function ProfilePage() {
   const { address } = Route.useParams();
   const mounted = useMounted();
-  const [profile, setProfile] = useState<Profile | null>(null);
-
-  useEffect(() => {
-    if (!mounted) return;
-    setProfile(getLiveProfile(address));
-  }, [mounted, address]);
+  const { profile } = useProfile(mounted ? address : undefined);
 
   const empty = mounted && profile && profile.logs.length === 0;
-  const logs = profile
-    ? [...profile.logs].sort((a, b) => b.createdAt - a.createdAt)
-    : [];
+  const logs = profile ? [...profile.logs].sort((a, b) => b.createdAt - a.createdAt) : [];
   const earned = profile ? BADGES.filter((b) => profile.longestStreak >= b.min) : [];
   const breakdown = profile ? categoryBreakdown(profile) : [];
   const dates = profile ? logDateSet(profile) : new Set<string>();
